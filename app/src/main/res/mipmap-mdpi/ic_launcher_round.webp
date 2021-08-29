@@ -1,0 +1,39 @@
+/*
+ * Copyright (C) 2017 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License
+ */
+
+package com.android.server.backup.restore;
+
+import static com.android.server.backup.BackupManagerService.DEBUG;
+import static com.android.server.backup.BackupManagerService.MORE_DEBUG;
+import static com.android.server.backup.BackupManagerService.TAG;
+import static com.android.server.backup.BackupPasswordManager.PBKDF_CURRENT;
+import static com.android.server.backup.BackupPasswordManager.PBKDF_FALLBACK;
+import static com.android.server.backup.UserBackupManagerService.BACKUP_FILE_HEADER_MAGIC;
+import static com.android.server.backup.UserBackupManagerService.BACKUP_FILE_VERSION;
+import static com.android.server.backup.UserBackupManagerService.SETTINGS_PACKAGE;
+import static com.android.server.backup.UserBackupManagerService.SHARED_BACKUP_AGENT_PACKAGE;
+
+import android.app.IBackupAgent;
+import android.app.backup.BackupAgent;
+import android.app.backup.IFullBackupRestoreObserver;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.Signature;
+import android.os.Environment;
+import android.os.ParcelFileDescriptor;
+import android.util.Slog;
+
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.

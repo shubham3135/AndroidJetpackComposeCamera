@@ -1,0 +1,153 @@
+/*
+ * Copyright (C) 2017 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License
+ */
+
+package com.android.server.backup.restore;
+
+import static com.android.server.backup.BackupManagerService.DEBUG;
+import static com.android.server.backup.BackupManagerService.MORE_DEBUG;
+import static com.android.server.backup.BackupManagerService.TAG;
+import static com.android.server.backup.UserBackupManagerService.KEY_WIDGET_STATE;
+import static com.android.server.backup.UserBackupManagerService.OP_TYPE_RESTORE_WAIT;
+import static com.android.server.backup.UserBackupManagerService.PACKAGE_MANAGER_SENTINEL;
+import static com.android.server.backup.UserBackupManagerService.SETTINGS_PACKAGE;
+import static com.android.server.backup.internal.BackupHandler.MSG_BACKUP_RESTORE_STEP;
+import static com.android.server.backup.internal.BackupHandler.MSG_RESTORE_OPERATION_TIMEOUT;
+import static com.android.server.backup.internal.BackupHandler.MSG_RESTORE_SESSION_TIMEOUT;
+
+import android.annotation.Nullable;
+import android.app.ApplicationThreadConstants;
+import android.app.IBackupAgent;
+import android.app.backup.BackupDataInput;
+import android.app.backup.BackupDataOutput;
+import android.app.backup.BackupManagerMonitor;
+import android.app.backup.BackupTransport;
+import android.app.backup.IBackupManagerMonitor;
+import android.app.backup.IRestoreObserver;
+import android.app.backup.RestoreDescription;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.content.pm.PackageManager.NameNotFoundException;
+import android.content.pm.PackageManagerInternal;
+import android.os.Bundle;
+import android.os.Message;
+import android.os.ParcelFileDescriptor;
+import android.os.RemoteException;
+import android.os.SystemClock;
+import android.os.UserHandle;
+import android.util.EventLog;
+import android.util.Slog;
+
+import com.android.internal.backup.IBackupTransport;
+import com.android.internal.util.Preconditions;
+import com.android.server.AppWidgetBackupBridge;
+import com.android.server.EventLogTags;
+import com.android.server.LocalServices;
+import com.android.server.backup.BackupAgentTimeoutParameters;
+import com.android.server.backup.BackupRestoreTask;
+import com.android.server.backup.BackupUtils;
+import com.android.server.backup.PackageManagerBackupAgent;
+import com.android.server.backup.PackageManagerBackupAgent.Metadata;
+import com.android.server.backup.TransportManager;
+import com.android.server.backup.UserBackupManagerService;
+import com.android.server.backup.internal.OnTaskFinishedListener;
+import com.android.server.backup.transport.TransportClient;
+import com.android.server.backup.utils.AppBackupUtils;
+import com.android.server.backup.utils.BackupManagerMonitorUtils;
+
+import libcore.io.IoUtils;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+
+public class PerformUnifiedRestoreTask implements BackupRestoreTask {
+
+    private UserBackupManagerService backupManagerService;
+    private final int mUserId;
+    private final TransportManager mTransportManager;
+    // Transport client we're working with to do the restore
+    private final TransportClient mTransportClient;
+
+    // Where per-transport saved state goes
+    File mStateDir;
+
+    // Restore observer; may be null
+    private IRestoreObserver mObserver;
+
+    // BackuoManagerMonitor; may be null
+    private IBackupManagerMonitor mMonitor;
+
+    // Token identifying the dataset to the transport
+    private long mToken;
+
+    // When this is a restore-during-install, this is the token identifying the
+    // operation to the Package Manager, and we must ensure that we let it know
+    // when we're finished.
+    private int mPmToken;
+
+    // When this is restore-during-install, we need to tell the package manager
+    // whether we actually launched the app, because this affects notifications
+    // around externally-visible state transitions.
+    private boolean mDidLaunch;
+
+    // Is this a whole-system restore, i.e. are we establishing a new ancestral
+    // dataset to base future restore-at-install operations from?
+    private boolean mIsSystemRestore;
+
+    // If this is a single-package restore, what package are we interested in?
+    private PackageInfo mTargetPackage;
+
+    // In all cases, the calculated list of packages that we are trying to restore
+    private List<PackageInfo> mAcceptSet;
+
+    // Our bookkeeping about the ancestral dataset
+    private PackageManagerBackupAgent mPmAgent;
+
+    // Currently-bound backup agent for restore + restoreFinished purposes
+    private IBackupAgent mAgent;
+
+    // What sort of restore we're doing now
+    private RestoreDescription mRestoreDescription;
+
+    // The package we're currently restoring
+    private PackageInfo mCurrentPackage;
+
+    // Widget-related data handled as part of this restore operation
+    private byte[] mWidgetData;
+
+    // Number of apps restored in this pass
+    private int mCount;
+
+    // When did we start?
+    private long mStartRealtime;
+
+    // State machine progress
+    private UnifiedRestoreState mState;
+
+    // How are things going?
+    private int mStatus;
+
+    // Done?
+    private boolean mFinished;
+
+    // When finished call listener
+    private final OnTaskFinishedListener mListener;
+
+    // Key/value: book
