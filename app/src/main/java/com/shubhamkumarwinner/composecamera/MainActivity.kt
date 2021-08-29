@@ -126,7 +126,7 @@ class MainActivity : ComponentActivity() {
                     Text("Feature not available")
                 } else {
                     Column {
-                        Text("The camera is important for this app. Please grant the permission.")
+                        Text("The storage permission is important for this app. Please grant the permission.")
                         Spacer(modifier = Modifier.height(8.dp))
                         Row {
                             Button(onClick = { storagePermissionState.launchMultiplePermissionRequest() }) {
@@ -143,7 +143,7 @@ class MainActivity : ComponentActivity() {
             else -> {
                 Column {
                     Text(
-                        "Camera permission denied. See this FAQ with information about why we " +
+                        "Storage permission denied. See this FAQ with information about why we " +
                                 "need this permission. Please, grant us access on the Settings screen."
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -222,7 +222,7 @@ class MainActivity : ComponentActivity() {
                     Text("Feature not available")
                 } else {
                     Column {
-                        Text("The camera is important for this app. Please grant the permission.")
+                        Text("The storage permission is important for this app. Please grant the permission.")
                         Spacer(modifier = Modifier.height(8.dp))
                         Row {
                             Button(onClick = { storagePermissionState.launchMultiplePermissionRequest() }) {
@@ -239,7 +239,7 @@ class MainActivity : ComponentActivity() {
             else -> {
                 Column {
                     Text(
-                        "Camera permission denied. See this FAQ with information about why we " +
+                        "Storage permission denied. See this FAQ with information about why we " +
                                 "need this permission. Please, grant us access on the Settings screen."
                     )
                     Spacer(modifier = Modifier.height(8.dp))
