@@ -66,17 +66,6 @@ class MainActivity : ComponentActivity() {
     }
 
     //step 1 Taking photo starts
-    @Composable
-    fun LaunchCamera() {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            if (imageBitmapState.value !=  null){
-                ShowImage(bitmap = imageBitmapState.value!!)
-            }
-            Button(onClick = { takePicture.launch(null) }) {
-                Text(text = "Open Camera")
-            }
-        }
-    }
 
     @ExperimentalPermissionsApi
     @Composable
@@ -126,6 +115,18 @@ class MainActivity : ComponentActivity() {
                         Text("Open Settings")
                     }
                 }
+            }
+        }
+    }
+
+    @Composable
+    fun LaunchCamera() {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            if (imageBitmapState.value !=  null){
+                ShowImage(bitmap = imageBitmapState.value!!)
+            }
+            Button(onClick = { takePicture.launch(null) }) {
+                Text(text = "Open Camera")
             }
         }
     }
