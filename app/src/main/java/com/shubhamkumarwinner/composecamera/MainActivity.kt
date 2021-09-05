@@ -1,54 +1,70 @@
 package com.shubhamkumarwinner.composecamera
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
 import android.provider.Settings
+import java.io.File
 import android.util.Log
+import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.*
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.Button
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Surface
-import androidx.compose.material.Text
+import androidx.compose.material.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleObserver
 import androidx.lifecycle.OnLifecycleEvent
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
-import com.google.android.exoplayer2.DefaultRenderersFactory
 import com.google.android.exoplayer2.SimpleExoPlayer
 import com.google.android.exoplayer2.source.ProgressiveMediaSource
-import com.google.android.exoplayer2.source.hls.HlsMediaSource
 import com.google.android.exoplayer2.ui.PlayerView
-import com.google.android.exoplayer2.upstream.DataSource
 import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory
-import com.google.android.exoplayer2.upstream.DefaultHttpDataSourceFactory
+import com.google.common.util.concurrent.ListenableFuture
 import com.shubhamkumarwinner.composecamera.ui.theme.ComposeCameraTheme
-import kotlinx.coroutines.channels.Channel
 import java.io.ByteArrayOutputStream
-import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 const val REQUEST_VIDEO_CAPTURE = 1
+//step 3 capture image with cameraX api starts
+private const val FILENAME_FORMAT = "yyyyMMdd_HHmm_ssSSS"
+private const val TAG = "CameraXBasic"
 class MainActivity : ComponentActivity() {
+    private var outputDirectory: File? = null
+
+    private var imageCapture: ImageCapture? = null
+    private var cameraExecutor: ExecutorService? = null
+    private var cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+    //step 3 capture image with cameraX api ends
+
     private var imageBitmapState = mutableStateOf<Bitmap?>(null)
     private var uriForVideo = mutableStateOf<Uri?>(null)
 
@@ -60,6 +76,8 @@ class MainActivity : ComponentActivity() {
     }
     @ExperimentalPermissionsApi
     override fun onCreate(savedInstanceState: Bundle?) {
+        window?.setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
+            WindowManager.LayoutParams.FLAG_FULLSCREEN)
         super.onCreate(savedInstanceState)
         setContent {
             ComposeCameraTheme {
@@ -69,25 +87,24 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        /*CaptureImage {
+                        /*VideoRecorder {
                             startActivity(
                                 Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
                                     .apply {
                                         data = Uri.parse("package:$packageName")
                                     })
                         }*/
-
-                        VideoRecorder {
-                            startActivity(
-                                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                                .apply {
-                                    data = Uri.parse("package:$packageName")
-                                })
-                        }
+                        CameraX()
                     }
                 }
             }
+
         }
+        outputDirectory = File("/storage/emulated/0/${getString(R.string.app_name)}Photo")
+            .apply {
+            mkdir()
+        }
+        //step 3 capture image with cameraX api ends
     }
 
     //step 1 Taking photo starts
@@ -113,7 +130,7 @@ class MainActivity : ComponentActivity() {
 
         // Camera permission state
         val storagePermissionState = rememberMultiplePermissionsState(
-            permissions = remember{mutableStateListOf(android.Manifest.permission.READ_EXTERNAL_STORAGE, android.Manifest.permission.WRITE_EXTERNAL_STORAGE)}
+            permissions = remember{mutableStateListOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE)}
         )
 
         when {
@@ -124,7 +141,8 @@ class MainActivity : ComponentActivity() {
                     !storagePermissionState.permissionRequested -> {
                 if (doNotShowRationale) {
                     Text("Feature not available")
-                } else {
+                }
+                else {
                     Column {
                         Text("The storage permission is important for this app. Please grant the permission.")
                         Spacer(modifier = Modifier.height(8.dp))
@@ -209,7 +227,7 @@ class MainActivity : ComponentActivity() {
 
         // Camera permission state
         val storagePermissionState = rememberMultiplePermissionsState(
-            permissions = remember{mutableStateListOf(android.Manifest.permission.READ_EXTERNAL_STORAGE, android.Manifest.permission.WRITE_EXTERNAL_STORAGE)}
+            permissions = remember{mutableStateListOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE)}
         )
 
         when {
@@ -256,7 +274,9 @@ class MainActivity : ComponentActivity() {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             if (uriForVideo.value !=  null){
                 Box(
-                    modifier = Modifier.fillMaxWidth().height(500.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(500.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Player(uri = uriForVideo.value!!)
@@ -352,6 +372,229 @@ class MainActivity : ComponentActivity() {
     }
 
     //step 2 Recording video ends
+
+    //step 3 capture image with cameraX api starts
+    @ExperimentalPermissionsApi
+    @Composable
+    fun CameraX(){
+        var doNotShowRationale by rememberSaveable { mutableStateOf(false) }
+
+        // Contact permission state
+        val requiredPermissionsState = rememberMultiplePermissionsState(
+            permissions = remember{
+                mutableStateListOf(
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.READ_EXTERNAL_STORAGE,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE
+                )
+            }
+        )
+
+        when {
+            requiredPermissionsState.allPermissionsGranted -> {
+                CaptureImageCameraX()
+            }
+            requiredPermissionsState.shouldShowRationale ||
+                    !requiredPermissionsState.permissionRequested -> {
+                if (doNotShowRationale) {
+                    Text("Feature not available")
+                } else {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            "The contact is important for this app. Please grant the permission.",
+                            modifier = Modifier.align(Alignment.CenterHorizontally),
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(onClick = { requiredPermissionsState.launchMultiplePermissionRequest() }) {
+                            Text("Request permission")
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(onClick = { doNotShowRationale = true }) {
+                            Text("Don't show rationale again")
+                        }
+                    }
+                }
+            }
+            else -> {
+                AlertDialog(
+                    onDismissRequest = {
+
+                    },
+                    title = {
+                        Text(text = "Permission Denied")
+                    },
+                    text = {
+                        Text("Some permissions has been denied. Please, grant us access on the Settings screen.")
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                startActivity(
+                                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                                        .apply {
+                                            data = Uri.parse("package:$packageName")
+                                        })
+                            }) {
+                            Text("Settings")
+                        }
+                    },
+                    dismissButton = {
+                        Button(
+                            onClick = {
+                                onBackPressed()
+                            }) {
+                            Text("Not now")
+                        }
+                    }
+                )
+            }
+        }
+    }
+    @SuppressLint("RememberReturnType")
+    @Composable
+    fun CaptureImageCameraX() {
+        val context = LocalContext.current
+
+        val cameraProviderFuture = remember{
+            ProcessCameraProvider.getInstance(context)
+        }
+
+        cameraExecutor = remember{
+            Executors.newSingleThreadExecutor()
+        }
+
+        val previewView = remember{
+            PreviewView(context).apply{
+                id = R.id.preview_view
+            }
+        }
+
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize()){
+                startCameraX(previewView, cameraProviderFuture)
+            }
+            IconButton(
+                onClick = {
+                    if (cameraSelector == CameraSelector.DEFAULT_BACK_CAMERA) {
+                        cameraExecutor?.shutdown()
+                        cameraSelector =CameraSelector.DEFAULT_FRONT_CAMERA
+                        startCameraX(previewView, cameraProviderFuture)
+                    }else{
+                        cameraExecutor?.shutdown()
+                        cameraSelector =CameraSelector.DEFAULT_BACK_CAMERA
+                        startCameraX(previewView, cameraProviderFuture)
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .height(90.dp)
+                    .width(80.dp)
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_flip_camera),
+                    contentDescription = null,
+                    tint = Color.White
+                )
+            }
+
+            IconButton(onClick = { takePhoto() },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .height(80.dp)) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_camera),
+                    contentDescription = null,
+                    tint = Color.White
+                )
+            }
+        }
+
+    }
+
+    private fun startCameraX(
+        previewView: PreviewView,
+        cameraProviderFuture: ListenableFuture<ProcessCameraProvider>,
+    ){
+
+        cameraProviderFuture.addListener({
+            val cameraProvider = cameraProviderFuture.get()
+            val preview = Preview.Builder().build()
+                .also{
+                    it.setSurfaceProvider(previewView.surfaceProvider)
+                }
+
+            imageCapture = ImageCapture.Builder()
+                .build()
+
+            val faceAnalysis = ImageAnalysis.Builder()
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .build().also{
+                    it.setAnalyzer( cameraExecutor!!, FaceAnalyzer())
+                }
+
+            try {
+                cameraProvider.unbindAll()
+                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture, faceAnalysis)
+            }catch (e: Exception){
+                Log.e(TAG, "CaptureImageCameraX: ${e.localizedMessage}")
+            }
+        }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun takePhoto() {
+        // Get a stable reference of the modifiable image capture use case
+        val imageCapture = imageCapture ?: return
+
+        // Create time-stamped output file to hold the image
+        val photoFile = File(
+            outputDirectory,
+            "IMG_"+SimpleDateFormat(FILENAME_FORMAT, Locale.US
+            ).format(System.currentTimeMillis()) + ".jpg")
+
+        // Create output options object which contains file + metadata
+        val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+
+        // Set up image capture listener, which is triggered after photo has
+        // been taken
+        imageCapture.takePicture(
+            outputOptions, ContextCompat.getMainExecutor(this), object : ImageCapture.OnImageSavedCallback {
+                override fun onError(exc: ImageCaptureException) {
+                    Log.e(TAG, "Photo capture failed: ${exc.message}", exc)
+                }
+
+                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                    val savedUri = Uri.fromFile(photoFile)
+                    val msg = "Photo capture succeeded: $savedUri"
+                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
+                    Log.d(TAG, msg)
+                }
+            })
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        cameraExecutor?.shutdown()
+    }
 }
+
+private class FaceAnalyzer : ImageAnalysis.Analyzer {
+    @SuppressLint("UnsafeOptInUsageError")
+    override fun analyze(imageProxy: ImageProxy) {
+        val image = imageProxy.image
+        if (image != null) {
+            Log.d(TAG, "analyze: ${image.height}")
+        }
+        image?.close()
+    }
+}
+//step 3 capture image with cameraX api ends
 
 
